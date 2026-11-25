@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.mojarras7.game-mode",
+  "name": "Game Mode",
+  "version": "1.0.0",
+  "author": "Alejandro Mojarras",
+  "description": "Immersive console-style gaming space on Hyprland's special:gaming workspace with one-key toggle and auto-restore",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Game Mode",
+    "description": "Immersive console-style gaming mode toggle and status indicator",
+    "category": "System",
+    "allowMultiple": false
+  }
+}

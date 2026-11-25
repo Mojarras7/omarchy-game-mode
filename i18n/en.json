@@ -1,0 +1,5 @@
+{
+  "tooltip.inactive": "Game Mode — Left-click to enter, right-click for menu",
+  "tooltip.active": "Game Mode (Active) — Left-click to toggle, right-click for menu",
+  "tooltip.activeSilent": "Game Mode · Silent — Left-click to toggle, right-click for menu"
+}

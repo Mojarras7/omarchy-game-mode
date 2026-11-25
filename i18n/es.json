@@ -1,0 +1,5 @@
+{
+  "tooltip.inactive": "Modo Juego — Clic izquierdo para entrar, clic derecho para menú",
+  "tooltip.active": "Modo Juego (Activo) — Clic izquierdo para alternar, clic derecho para menú",
+  "tooltip.activeSilent": "Modo Juego · Silencioso — Clic izquierdo para alternar, clic derecho para menú"
+}
