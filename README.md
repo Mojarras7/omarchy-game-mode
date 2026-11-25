@@ -11,6 +11,8 @@ An immersive, console-style **Game Mode** plugin and utility for [Omarchy Linux]
 - **Compact Control Menu (<kbd>Super</kbd> + <kbd>Ctrl</kbd> + <kbd>G</kbd>)**: Switch between `Performance` and `Silent` profiles, jump between `Gaming` and `Desktop`, or `Exit` completely.
 - **Distraction-Free Immersion**: Automatically hides the top bar (and restores it instantly even if you leave with `Super + 1`), silences notifications (DND), pauses screensaver/idle lock (controller-friendly), and pauses Nightlight — faithfully restoring your previous state on exit.
 - **Auto-Restore on Exit**: Closing Steam Big Picture from your controller automatically restores your desktop.
+- **Gamescope Console Isolation**: Wraps Steam Big Picture, games, and third-party launchers (Ubisoft Connect, Proton splash windows, etc.) inside a single fullscreen `gamescope` window — zero stray background windows.
+- **Controller Home/Guide Launch**: Press your controller's Guide/Home button (X-Input / DualShock 4) from the desktop to jump straight into Game Mode without touching your keyboard.
 - **Omarchy Bar Widget**: Shows live Game Mode status in the top bar (accent-highlighted when active), with left-click instant toggle and right-click control menu.
 
 ## External Dependencies
@@ -18,6 +20,8 @@ An immersive, console-style **Game Mode** plugin and utility for [Omarchy Linux]
 - `hyprland` (Omarchy default)
 - `jq` (for Hyprland JSON queries)
 - `steam` (for Steam Big Picture Mode)
+- `gamescope` (`omarchy pkg add gamescope`, recommended for isolated single-window console mode)
+- `python3` (stdlib only, for the optional controller Home button listener)
 - `power-profiles-daemon` (`powerprofilesctl`, optional — for Performance / Silent power profiles)
 
 ## Installation

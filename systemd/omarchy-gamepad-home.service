@@ -1,0 +1,13 @@
+[Unit]
+Description=Omarchy Gamepad Home Button Listener (Controller Guide -> Game Mode)
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/omarchy-gamepad-home
+KillMode=process
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

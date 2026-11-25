@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+"""Listen read-only for gamepad Guide/Home button (BTN_MODE) presses.
+- On the desktop (outside special:gaming): launches/switches to Omarchy Game Mode.
+  Because Steam reads controllers directly via hidraw and toggles its sidebar on
+  that same Home press, we send a single Escape right after entering special:gaming
+  when Game Mode was already active so the sidebar closes automatically.
+- Inside special:gaming: does nothing so Steam handles the Guide button natively.
+"""
+
+import glob
+import json
+import os
+import select
+import struct
+import subprocess
+import time
+
+EV_KEY = 1
+BTN_MODE = 316
+EVENT_FMT = "llHHI"  # struct input_event on 64-bit Linux (24 bytes)
+EVENT_SIZE = struct.calcsize(EVENT_FMT)
+DEBOUNCE_SEC = 1.5
+RESCAN_SEC = 2.0
+
+STATE_BASE = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local/state")
+ACTIVE_FILE = os.path.join(STATE_BASE, "omarchy/game-mode/active")
+
+
+def find_mode_devices():
+    devs = set()
+    for cap_path in glob.glob("/sys/class/input/event*/device/capabilities/key"):
+        ev = cap_path.split("/")[4]
+        try:
+            with open(cap_path, "r") as f:
+                words = [int(w, 16) for w in reversed(f.read().strip().split())]
+            if len(words) > BTN_MODE // 64 and (words[BTN_MODE // 64] & (1 << (BTN_MODE % 64))):
+                dev = f"/dev/input/{ev}"
+                if os.access(dev, os.R_OK):
+                    devs.add(dev)
+        except OSError:
+            pass
+    return devs
+
+
+def is_in_gaming_view():
+    try:
+        out = subprocess.check_output(["hyprctl", "monitors", "-j"], stderr=subprocess.DEVNULL, timeout=2)
+        monitors = json.loads(out)
+        return any(
+            m.get("focused") and (m.get("specialWorkspace") or {}).get("name") == "special:gaming"
+            for m in monitors
+        )
+    except Exception:
+        return False
+
+
+def send_escape():
+    try:
+        subprocess.run(
+            ["hyprctl", "dispatch", 'hl.dsp.send_key_state({ mods = "", key = "Escape", state = "down" })'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
+        time.sleep(0.05)
+        subprocess.run(
+            ["hyprctl", "dispatch", 'hl.dsp.send_key_state({ mods = "", key = "Escape", state = "up" })'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
+    except Exception:
+        pass
+
+
+def main():
+    open_fds = {}
+    last_trigger = 0.0
+    last_scan = 0.0
+
+    while True:
+        now = time.monotonic()
+        if now - last_scan >= RESCAN_SEC:
+            last_scan = now
+            current = find_mode_devices()
+            for dev in list(open_fds):
+                if dev not in current:
+                    try:
+                        os.close(open_fds.pop(dev))
+                    except OSError:
+                        pass
+            for dev in current:
+                if dev not in open_fds:
+                    try:
+                        open_fds[dev] = os.open(dev, os.O_RDONLY | os.O_NONBLOCK)
+                    except OSError:
+                        pass
+
+        if not open_fds:
+            time.sleep(RESCAN_SEC)
+            continue
+
+        fd_to_dev = {fd: dev for dev, fd in open_fds.items()}
+        try:
+            readable, _, _ = select.select(list(fd_to_dev.keys()), [], [], RESCAN_SEC)
+        except (OSError, ValueError):
+            last_scan = 0.0
+            continue
+
+        for fd in readable:
+            dev = fd_to_dev.get(fd)
+            try:
+                data = os.read(fd, EVENT_SIZE * 16)
+            except BlockingIOError:
+                continue
+            except OSError:
+                if dev in open_fds:
+                    try:
+                        os.close(open_fds.pop(dev))
+                    except OSError:
+                        pass
+                continue
+
+            for offset in range(0, len(data) - (len(data) % EVENT_SIZE), EVENT_SIZE):
+                _, _, ev_type, code, value = struct.unpack_from(EVENT_FMT, data, offset)
+                if ev_type == EV_KEY and code == BTN_MODE and value == 1:
+                    now = time.monotonic()
+                    if now - last_trigger >= DEBOUNCE_SEC:
+                        last_trigger = now
+                        if not is_in_gaming_view():
+                            was_active = os.path.exists(ACTIVE_FILE)
+                            subprocess.Popen(
+                                [os.path.expanduser("~/.local/bin/omarchy-game-mode")],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                start_new_session=True,
+                            )
+                            if was_active:
+                                # Wait until special:gaming is actually focused, then dismiss Steam's sidebar
+                                for _ in range(20):
+                                    time.sleep(0.1)
+                                    if is_in_gaming_view():
+                                        time.sleep(0.15)
+                                        send_escape()
+                                        break
+
+
+if __name__ == "__main__":
+    main()

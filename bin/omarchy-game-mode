@@ -37,6 +37,11 @@ has_gaming_window() {
     'any(.[]; .workspace.name == $ws)' >/dev/null 2>&1
 }
 
+has_gamescope() {
+  hyprctl clients -j 2>/dev/null | jq -e \
+    'any(.[]; (.class // "") | test("^gamescope$"; "i"))' >/dev/null 2>&1
+}
+
 has_big_picture() {
   hyprctl clients -j 2>/dev/null | jq -e \
     'any(.[]; (.class == "steam") and ((.title // "") | test("Big Picture"; "i")))' >/dev/null 2>&1
@@ -45,6 +50,10 @@ has_big_picture() {
 has_steam_game() {
   hyprctl clients -j 2>/dev/null | jq -e \
     'any(.[]; (.class // "") | test("^steam_app_"))' >/dev/null 2>&1
+}
+
+has_session_window() {
+  has_gamescope || has_big_picture || has_steam_game
 }
 
 nightlight_is_on() {
@@ -77,11 +86,11 @@ stop_watcher() {
 start_watcher() {
   stop_watcher
   (
-    # Wait up to 45s for Steam Big Picture or a Steam game window to appear
+    # Wait up to 45s for Gamescope, Steam Big Picture, or a Steam game window to appear
     local seen=false
     for _ in $(seq 1 30); do
       [[ -f "$ACTIVE_FILE" ]] || exit 0
-      if has_big_picture || has_steam_game; then
+      if has_session_window; then
         seen=true
         break
       fi
@@ -90,12 +99,12 @@ start_watcher() {
 
     [[ "$seen" == "true" ]] || exit 0
 
-    # Once seen, monitor until both Big Picture and any Steam game are closed
+    # Once seen, monitor until the gaming session window closes
     local missing_checks=0
     while [[ -f "$ACTIVE_FILE" ]]; do
       sleep 2
       [[ -f "$ACTIVE_FILE" ]] || exit 0
-      if has_big_picture || has_steam_game; then
+      if has_session_window; then
         missing_checks=0
       else
         missing_checks=$((missing_checks + 1))
@@ -129,23 +138,70 @@ show_gaming_view() {
   fi
 }
 
+LOCK_FILE="$STATE_DIR/launching.lock"
+
+launch_gaming_session() {
+  # Prevent duplicate launches if Super+G or Home is pressed again while booting
+  if [[ -f "$LOCK_FILE" ]]; then
+    local lock_age
+    lock_age=$(( $(date +%s) - $(stat -c %Y "$LOCK_FILE" 2>/dev/null || echo 0) ))
+    if (( lock_age < 30 )); then
+      return 0
+    fi
+  fi
+  touch "$LOCK_FILE"
+
+  omarchy osd -m "Opening..." -i "󰊗" -d 4000 >/dev/null 2>&1 || true
+
+  # Clean up any stale gamescope or outside-gamescope Steam so Steam boots inside Gamescope
+  if pgrep -x gamescope >/dev/null 2>&1 && ! has_gamescope; then
+    pkill -9 -x gamescope 2>/dev/null || true
+    sleep 0.3
+  fi
+  if pgrep -x steam >/dev/null 2>&1 && ! pgrep -x gamescope >/dev/null 2>&1; then
+    steam -shutdown >/dev/null 2>&1 || true
+    for _ in $(seq 1 24); do
+      pgrep -x steam >/dev/null 2>&1 || break
+      sleep 0.25
+    done
+    pkill -x steam 2>/dev/null || true
+  fi
+
+  local mon_w mon_h mon_r
+  mon_w=$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.focused==true) | .width' | head -n1)
+  mon_h=$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.focused==true) | .height' | head -n1)
+  mon_r=$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.focused==true) | (.refreshRate | round)' | head -n1)
+  mon_w="${mon_w:-1920}"
+  mon_h="${mon_h:-1080}"
+  mon_r="${mon_r:-60}"
+
+  setsid -f gamescope -e -f -W "$mon_w" -H "$mon_h" -r "$mon_r" -- steam -gamepadui >/dev/null 2>&1 || true
+}
+
 ensure_steam_and_show() {
   if has_gaming_window; then
+    rm -f "$LOCK_FILE"
     show_gaming_view
     return 0
   fi
 
-  setsid -f steam steam://open/bigpicture >/dev/null 2>&1 || true
+  launch_gaming_session
 
-  # Poll until Steam Big Picture lands in special:gaming (up to 20s)
-  for _ in $(seq 1 80); do
+  # Poll until Gamescope lands in special:gaming (up to 35s),
+  # refreshing the OSD every ~3.5s so the user always knows it's still loading.
+  for i in $(seq 1 140); do
     if has_gaming_window; then
+      rm -f "$LOCK_FILE"
       show_gaming_view
       return 0
+    fi
+    if (( i % 14 == 0 )); then
+      omarchy osd -m "Opening..." -i "󰊗" -d 3800 >/dev/null 2>&1 || true
     fi
     sleep 0.25
   done
 
+  rm -f "$LOCK_FILE"
   return 1
 }
 
@@ -211,9 +267,21 @@ exit_game_mode() {
     hyprctl dispatch "hl.dsp.workspace.toggle_special(\"$SPECIAL_WS\")" >/dev/null 2>&1 || true
   fi
 
-  if [[ "$close_steam" == "true" ]] && has_big_picture; then
-    setsid -f steam steam://close/bigpicture >/dev/null 2>&1 || true
+  if [[ "$close_steam" == "true" ]]; then
+    steam -shutdown >/dev/null 2>&1 || true
+    for _ in $(seq 1 12); do
+      pgrep -x gamescope >/dev/null 2>&1 || break
+      sleep 0.25
+    done
+    pkill -x gamescope 2>/dev/null || true
+    pkill -x steam 2>/dev/null || true
+  else
+    # Auto-exit (e.g. closed Gamescope with Super+Q): make sure Steam also shuts down cleanly
+    if pgrep -x steam >/dev/null 2>&1; then
+      steam -shutdown >/dev/null 2>&1 || true
+    fi
   fi
+  rm -f "$LOCK_FILE"
 
   powerprofilesctl set balanced 2>/dev/null || true
   omarchy-shell notifications setDnd off >/dev/null 2>&1 || true
