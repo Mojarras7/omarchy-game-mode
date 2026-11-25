@@ -1,5 +1,7 @@
 # Omarchy Game Mode 🎮
 
+![Omarchy Game Mode](preview.png)
+
 An immersive, console-style **Game Mode** plugin and utility for [Omarchy Linux](https://omarchy.org/), powered by Hyprland's hidden `special:gaming` workspace.
 
 ## Features
